@@ -1,5 +1,4 @@
-from datetime import datetime
-from sqlalchemy import func
+from datetime import datetime, timezone
 
 from backend.database import SessionLocal
 from backend.models import Review, DriftResult
@@ -8,66 +7,20 @@ from backend.models import Review, DriftResult
 DRIFT_THRESHOLD = 0.20
 
 
-def calculate_negative_rate(
-    db,
-    reviews,
-    start_date=None,
-    end_date=None,
-):
-    query = db.query(Review).filter(
-        Review.sentiment.isnot(None)
-    )
-
-    if start_date:
-        query = query.filter(
-            Review.created_at >= start_date
-        )
-
-    if end_date:
-        query = query.filter(
-            Review.created_at < end_date
-        )
-
-    period_reviews = query.all()
-
-    if not period_reviews:
-        return {
-            "sample_size": 0,
-            "negative_count": 0,
-            "negative_rate": 0.0,
-        }
-
-    negative_count = sum(
-        1
-        for review in period_reviews
-        if review.sentiment.lower() == "negative"
-    )
-
-    negative_rate = (
-        negative_count / len(period_reviews)
-    )
-
-    return {
-        "sample_size": len(period_reviews),
-        "negative_count": negative_count,
-        "negative_rate": round(
-            negative_rate,
-            4,
-        ),
-    }
-
-
 def calculate_drift():
     db = SessionLocal()
 
     try:
         all_reviews = (
             db.query(Review)
-            .order_by(Review.created_at.asc())
+            .filter(Review.sentiment.isnot(None))
+            .order_by(Review.created_at.asc(), Review.id.asc())
             .all()
         )
 
-        if len(all_reviews) < 2:
+        total_reviews = len(all_reviews)
+
+        if total_reviews < 2:
             return {
                 "status": "insufficient_data",
                 "message": (
@@ -76,7 +29,8 @@ def calculate_drift():
                 ),
             }
 
-        midpoint = len(all_reviews) // 2
+        # Split the CURRENT dataset into two equal parts.
+        midpoint = total_reviews // 2
 
         baseline_reviews = all_reviews[:midpoint]
         current_reviews = all_reviews[midpoint:]
@@ -84,13 +38,15 @@ def calculate_drift():
         baseline_negative = sum(
             1
             for review in baseline_reviews
-            if review.sentiment.lower() == "negative"
+            if review.sentiment
+            and review.sentiment.lower() == "negative"
         )
 
         current_negative = sum(
             1
             for review in current_reviews
-            if review.sentiment.lower() == "negative"
+            if review.sentiment
+            and review.sentiment.lower() == "negative"
         )
 
         baseline_rate = (
@@ -105,6 +61,7 @@ def calculate_drift():
 
         drift_detected = abs(change) >= DRIFT_THRESHOLD
 
+        # These timestamps describe the records used for each half.
         baseline_period = (
             f"{baseline_reviews[0].created_at.isoformat()}"
             f" to "
@@ -142,32 +99,45 @@ def calculate_drift():
         return {
             "status": "success",
             "id": result.id,
+
+            "dataset": {
+                "total_reviews": total_reviews,
+                "baseline_reviews": len(baseline_reviews),
+                "current_reviews": len(current_reviews),
+                "calculated_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            },
+
             "baseline": {
-                "sample_size": len(
-                    baseline_reviews
-                ),
+                "sample_size": len(baseline_reviews),
                 "negative_count": baseline_negative,
                 "negative_rate": round(
                     baseline_rate,
                     4,
                 ),
             },
+
             "current": {
-                "sample_size": len(
-                    current_reviews
-                ),
+                "sample_size": len(current_reviews),
                 "negative_count": current_negative,
                 "negative_rate": round(
                     current_rate,
                     4,
                 ),
             },
+
             "negative_rate_change": round(
                 change,
                 4,
             ),
+
             "threshold": DRIFT_THRESHOLD,
+
             "drift_detected": drift_detected,
+
+            "baseline_period": baseline_period,
+            "current_period": current_period,
         }
 
     except Exception:
@@ -188,6 +158,21 @@ if __name__ == "__main__":
     print("\nStatus:", result["status"])
 
     if result["status"] == "success":
+        print(
+            "Total reviews:",
+            result["dataset"]["total_reviews"],
+        )
+
+        print(
+            "Baseline reviews:",
+            result["dataset"]["baseline_reviews"],
+        )
+
+        print(
+            "Current reviews:",
+            result["dataset"]["current_reviews"],
+        )
+
         print(
             "Baseline negative rate:",
             result["baseline"]["negative_rate"],
