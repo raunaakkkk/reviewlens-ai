@@ -35,7 +35,7 @@ from backend.agent.rag_agent import answer_question
 from backend.ingestion.batch import ingest_csv
 from backend.database_sync import sync_search_to_database
 from backend.insight_sync import sync_insights
-
+from backend.dataset_reset import reset_dataset
 
 # =========================================================
 # FASTAPI APPLICATION
@@ -57,6 +57,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://reviewlens-web-260925.azurewebsites.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -74,7 +75,8 @@ def generate_background_insights():
 
     The upload request does not wait for Qwen3 to finish.
     """
-
+    analysis_status["status"] = "processing"
+    analysis_status["message"] = "Generating fresh AI insights."
     print("\n========================================")
     print("BACKGROUND INSIGHT GENERATION STARTED")
     print("========================================")
@@ -82,7 +84,8 @@ def generate_background_insights():
     try:
 
         result = sync_insights()
-
+        analysis_status["status"] = "completed"
+        analysis_status["message"] = "Fresh AI insights generated successfully."
         print("\n========================================")
         print("BACKGROUND INSIGHT GENERATION COMPLETE")
         print("========================================")
@@ -108,7 +111,8 @@ def generate_background_insights():
         )
 
     except Exception as exc:
-
+        analysis_status["status"] = "failed"
+        analysis_status["message"] = str(exc)
         print("\n========================================")
         print("BACKGROUND INSIGHT GENERATION FAILED")
         print("========================================")
@@ -209,14 +213,22 @@ async def upload_review(
             temp_path = temp_file.name
 
         # -------------------------------------------------
-        # Process CSV
+        # REPLACE PREVIOUS DATASET
+        #
+        # The uploaded CSV becomes the new active dataset.
+        # Previous Search + PostgreSQL review data is removed.
+        # -------------------------------------------------
+
+        reset_result = reset_dataset()
+
+        # -------------------------------------------------
+        # Process new CSV
         #
         # Cleaning
         # PII Redaction
         # Sentiment
         # Embeddings
         # Azure AI Search
-        # Duplicate Detection
         # -------------------------------------------------
 
         ingestion_result = ingest_csv(
@@ -228,6 +240,12 @@ async def upload_review(
         # -------------------------------------------------
 
         database_result = sync_search_to_database()
+
+        # -------------------------------------------------
+        # Calculate drift for the NEW active dataset
+        # -------------------------------------------------
+
+        drift_result = calculate_drift()
 
         # -------------------------------------------------
         # Start Qwen3 insight generation
@@ -251,10 +269,11 @@ async def upload_review(
             "filename": file.filename,
             "blob_name": blob_name,
             "blob_url": blob_url,
-
+            "reset": reset_result,
             "ingestion": ingestion_result,
 
             "database": database_result,
+            "drift": drift_result,
 
             "insights": {
                 "status": "queued",
@@ -290,7 +309,20 @@ async def upload_review(
 
             except OSError:
                 pass
+# =========================================================
+# ANALYSIS STATUS
+# =========================================================
 
+analysis_status = {
+    "status": "idle",
+    "message": "No analysis is currently running.",
+}
+
+
+@app.get("/analysis/status")
+def get_analysis_status():
+
+    return analysis_status
 
 # =========================================================
 # GET REVIEWS
@@ -441,8 +473,8 @@ def get_validation():
             "status": "success",
 
             "validation": {
+                "type": "labelled_benchmark",
                 "id": validation.id,
-
                 "sample_size": (
                     validation.sample_size
                 ),

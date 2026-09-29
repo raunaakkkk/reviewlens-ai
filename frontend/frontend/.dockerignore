@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.gitignore
+README.md
+AGENTS.md
+CLAUDE.md
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+azure-deploy

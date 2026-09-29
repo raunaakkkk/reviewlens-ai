@@ -286,10 +286,17 @@ export default function Home() {
         "negative"
     ).length;
 
+    const mixed = reviews.filter(
+      (review) =>
+        review.sentiment?.toLowerCase() ===
+        "mixed"
+    ).length;
+
     return {
       positive,
       neutral,
       negative,
+      mixed,
     };
   }, [reviews]);
 
@@ -306,6 +313,10 @@ export default function Home() {
     {
       name: "Negative",
       value: sentimentCounts.negative,
+    },
+    {
+      name: "Mixed",
+      value: sentimentCounts.mixed,
     },
   ];
 
@@ -324,6 +335,16 @@ export default function Home() {
     reviews.length > 0
       ? Math.round(
           (sentimentCounts.negative /
+            reviews.length) *
+            100
+        )
+      : 0;
+
+
+  const mixedPercentage =
+    reviews.length > 0
+      ? Math.round(
+          (sentimentCounts.mixed /
             reviews.length) *
             100
         )
@@ -483,7 +504,28 @@ export default function Home() {
         `${file.name} uploaded successfully.`
       );
 
-      await loadDashboard();
+      for (let attempt = 0; attempt < 30; attempt++) {
+  const statusResponse = await fetch(
+    `${API_URL}/analysis/status`
+  );
+
+  if (statusResponse.ok) {
+    const statusData = await statusResponse.json();
+
+    if (
+      statusData.status === "completed" ||
+      statusData.status === "failed"
+    ) {
+      break;
+    }
+  }
+
+  await new Promise((resolve) =>
+    setTimeout(resolve, 2000)
+  );
+}
+
+await loadDashboard();
 
     } catch (error) {
       console.error(
@@ -762,7 +804,7 @@ export default function Home() {
 
             <section
               id="overview"
-              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
             >
 
               <StatCard
@@ -808,6 +850,18 @@ export default function Home() {
                   <ThumbsDown className="h-5 w-5" />
                 }
                 subtitle={`${negativePercentage}% negative sentiment`}
+              />
+
+
+              <StatCard
+                title="Mixed"
+                value={
+                  sentimentCounts.mixed
+                }
+                icon={
+                  <Activity className="h-5 w-5" />
+                }
+                subtitle={`${mixedPercentage}% mixed sentiment`}
               />
 
             </section>
@@ -860,6 +914,7 @@ export default function Home() {
                         <Cell fill="#10b981" />
                         <Cell fill="#94a3b8" />
                         <Cell fill="#ef4444" />
+                        <Cell fill="#f59e0b" />
 
                       </Pie>
 
@@ -896,6 +951,14 @@ export default function Home() {
                       sentimentCounts.negative
                     }
                     dotClass="bg-red-500"
+                  />
+
+                  <LegendRow
+                    label="Mixed"
+                    value={
+                      sentimentCounts.mixed
+                    }
+                    dotClass="bg-amber-500"
                   />
 
                 </div>

@@ -38,3 +38,10 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Project datasets
+data/reviewlens_10000_reviews.csv
+data/reviewlens_10000_unique_reviews.csv
+
+# Frontend logs
+frontend/frontend/reviewlens-logs/
