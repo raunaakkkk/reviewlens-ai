@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database import Base
 
 
+# =========================================================
+# REVIEWS
+# =========================================================
+
 class Review(Base):
     __tablename__ = "reviews"
 
@@ -64,6 +68,10 @@ class Review(Base):
     )
 
 
+# =========================================================
+# INSIGHTS
+# =========================================================
+
 class Insight(Base):
     __tablename__ = "insights"
 
@@ -99,6 +107,10 @@ class Insight(Base):
         cascade="all, delete-orphan",
     )
 
+
+# =========================================================
+# EVIDENCE LINKS
+# =========================================================
 
 class EvidenceLink(Base):
     __tablename__ = "evidence_links"
@@ -136,4 +148,89 @@ class EvidenceLink(Base):
     review = relationship(
         "Review",
         back_populates="evidence_links",
+    )
+
+
+# =========================================================
+# SENTIMENT VALIDATION RESULTS
+# =========================================================
+
+class ValidationResult(Base):
+    __tablename__ = "validation_results"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    sample_size: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    accuracy: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    precision: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    recall: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    f1_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+class DriftResult(Base):
+    __tablename__ = "drift_results"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    current_period: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    baseline_period: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    baseline_negative_rate: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    current_negative_rate: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    negative_rate_change: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    drift_detected: Mapped[bool] = mapped_column(
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
     )

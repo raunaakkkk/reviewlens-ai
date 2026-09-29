@@ -1,48 +1,77 @@
-from sqlalchemy import select
-
+from backend.rag.search import get_search_client
 from backend.database import SessionLocal
 from backend.models import Review
 
 
-def save_review_to_database(review: dict) -> bool:
+def sync_search_to_database() -> dict:
     """
-    Save one Azure AI Search review into PostgreSQL.
+    Synchronize reviews from Azure AI Search to PostgreSQL.
 
-    Returns:
-        True  -> inserted
-        False -> already exists
+    Existing reviews are skipped using review_hash.
     """
 
+    search_client = get_search_client()
     db = SessionLocal()
 
+    inserted = 0
+    skipped = 0
+
     try:
-        review_id = review["id"]
-        review_hash = review["review_hash"]
-
-        existing = db.execute(
-            select(Review).where(
-                Review.review_hash == review_hash
-            )
-        ).scalar_one_or_none()
-
-        if existing:
-            return False
-
-        db_review = Review(
-            id=review_id,
-            review_hash=review_hash,
-            review_text=review["review_text"],
-            redacted_text=review["redacted_text"],
-            sentiment=review["sentiment"],
-            positive_score=review["positive_score"],
-            neutral_score=review["neutral_score"],
-            negative_score=review["negative_score"],
+        results = search_client.search(
+            search_text="*",
+            select=[
+                "id",
+                "review_text",
+                "redacted_text",
+                "sentiment",
+                "positive_score",
+                "neutral_score",
+                "negative_score",
+                "review_hash",
+            ],
+            top=1000,
         )
 
-        db.add(db_review)
+        for result in results:
+
+            review_hash = result.get("review_hash")
+
+            if not review_hash:
+                continue
+
+            existing = (
+                db.query(Review)
+                .filter(
+                    Review.review_hash == review_hash
+                )
+                .first()
+            )
+
+            if existing:
+                skipped += 1
+                continue
+
+            review = Review(
+                id=result["id"],
+                review_hash=review_hash,
+                review_text=result["review_text"],
+                redacted_text=result["redacted_text"],
+                sentiment=result["sentiment"],
+                positive_score=result["positive_score"],
+                neutral_score=result["neutral_score"],
+                negative_score=result["negative_score"],
+            )
+
+            db.add(review)
+            inserted += 1
+
         db.commit()
 
-        return True
+        return {
+            "status": "success",
+            "inserted": inserted,
+            "skipped": skipped,
+        }
 
     except Exception:
         db.rollback()
@@ -52,46 +81,10 @@ def save_review_to_database(review: dict) -> bool:
         db.close()
 
 
-def sync_reviews_to_database(
-    reviews: list[dict],
-) -> dict:
-
-    inserted = 0
-    skipped = 0
-
-    for review in reviews:
-
-        if save_review_to_database(review):
-            inserted += 1
-        else:
-            skipped += 1
-
-    return {
-        "total": len(reviews),
-        "inserted": inserted,
-        "skipped": skipped,
-    }
-
-
 if __name__ == "__main__":
 
-    from backend.rag.retrieve import retrieve_reviews
+    result = sync_search_to_database()
 
-    print("\n" + "=" * 60)
-    print("REVIEWLENS AI - SEARCH TO POSTGRESQL SYNC")
-    print("=" * 60)
-
-    reviews = retrieve_reviews(
-        query="customer reviews",
-        top_k=10,
-    )
-
-    result = sync_reviews_to_database(
-        reviews
-    )
-
-    print("\nTotal retrieved :", result["total"])
-    print("Inserted        :", result["inserted"])
-    print("Skipped         :", result["skipped"])
-
-    print("\n" + "=" * 60)
+    print("DATABASE SYNC COMPLETE")
+    print("Inserted :", result["inserted"])
+    print("Skipped  :", result["skipped"])

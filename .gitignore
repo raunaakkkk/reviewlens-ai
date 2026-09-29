@@ -1,30 +1,40 @@
 # Python
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Virtual environment
 .venv/
 venv/
-env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
 
-# Environment variables
+# Environment / secrets
 .env
+.env.*
+!.env.example
 
-# IDE
+# Azure / deployment artifacts
+azure_build/
+azure_venv/
+*.zip
+*.dump
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+
+# Docker
+*.tar
+
+# IDE / OS
 .vscode/
 .idea/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Data
-*.csv
-*.json
+.DS_Store
+Thumbs.db
 
 # Logs
 *.log
 
-# OS
-.DS_Store
-Thumbs.db
+# Temporary files
+tmp/
+temp/

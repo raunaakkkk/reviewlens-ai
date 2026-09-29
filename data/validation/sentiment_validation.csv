@@ -1,0 +1,13 @@
+review_text,true_sentiment
+"The product quality is excellent and works perfectly",positive
+"I am very happy with the product",positive
+"Customer support was helpful and quick",positive
+"The product arrived on time and works well",positive
+"The delivery was late and support did not respond",negative
+"Very poor delivery experience",negative
+"The product stopped working after a few days",negative
+"Customer service ignored my complaint",negative
+"The product is okay, nothing special",neutral
+"Delivery was acceptable but the product is average",neutral
+"The experience was neither good nor bad",neutral
+"The product works but could be improved",neutral

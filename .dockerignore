@@ -1,0 +1,12 @@
+﻿.venv
+azure_venv
+azure_deploy
+reviewlens_deploy
+reviewlens-api.zip
+frontend
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+*.dump

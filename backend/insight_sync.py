@@ -1,205 +1,302 @@
-from sqlalchemy import select
+from backend.analysis.insights import generate_insights
+from backend.analysis.evidence import build_evidence_links
 
 from backend.database import SessionLocal
-from backend.models import EvidenceLink, Insight, Review
+from backend.models import Review, Insight, EvidenceLink
 
 
-def save_insights(
-    insight_result: dict,
-) -> dict:
+def remove_existing_generated_insights(db):
+    """
+    Remove previously generated theme/complaint insights
+    and their evidence links.
+
+    This prevents duplicate/stale insights from accumulating.
+    """
+
+    existing_insights = (
+        db.query(Insight)
+        .filter(
+            Insight.insight_type.in_(
+                ["theme", "complaint"]
+            )
+        )
+        .all()
+    )
+
+    for insight in existing_insights:
+        db.delete(insight)
+
+    db.flush()
+
+
+def sync_insights() -> dict:
+    """
+    Generate fresh AI insights and replace the previous
+    generated insights in PostgreSQL.
+    """
 
     db = SessionLocal()
 
     try:
-        themes = insight_result.get("themes", [])
-        complaints = insight_result.get("complaints", [])
-        evidence = insight_result.get("evidence", [])
 
-        created_insights = 0
-        created_links = 0
+        # -------------------------------------------------
+        # Generate fresh insights
+        # -------------------------------------------------
 
-        def create_insight(
-            insight_type: str,
-            title: str,
-            evidence_reason_prefix: str,
-        ):
-            nonlocal created_insights, created_links
+        insight_result = generate_insights(
+            query=(
+                "What are the main themes and complaints "
+                "in these customer reviews?"
+            ),
+            top_k=10,
+        )
+
+        if insight_result.get("status") != "success":
+
+            return {
+                "status": "no_data",
+                "created": 0,
+                "skipped": 0,
+                "evidence_links": 0,
+            }
+
+        linked_result = build_evidence_links(
+            insight_result
+        )
+
+        themes = linked_result.get(
+            "themes",
+            []
+        )
+
+        complaints = linked_result.get(
+            "complaints",
+            []
+        )
+
+        evidence = linked_result.get(
+            "evidence",
+            []
+        )
+
+        # -------------------------------------------------
+        # Remove old generated insights
+        # -------------------------------------------------
+
+        remove_existing_generated_insights(
+            db
+        )
+
+        created = 0
+        evidence_created = 0
+
+        # -------------------------------------------------
+        # Remove exact duplicate items from Qwen output
+        # -------------------------------------------------
+
+        unique_themes = []
+        seen_themes = set()
+
+        for theme in themes:
+
+            normalized = theme.strip().lower()
+
+            if not normalized:
+                continue
+
+            if normalized in seen_themes:
+                continue
+
+            seen_themes.add(normalized)
+            unique_themes.append(theme.strip())
+
+        unique_complaints = []
+        seen_complaints = set()
+
+        for complaint in complaints:
+
+            normalized = complaint.strip().lower()
+
+            if not normalized:
+                continue
+
+            if normalized in seen_complaints:
+                continue
+
+            seen_complaints.add(normalized)
+            unique_complaints.append(
+                complaint.strip()
+            )
+
+        # -------------------------------------------------
+        # Create theme insights
+        # -------------------------------------------------
+
+        for theme in unique_themes:
 
             insight = Insight(
-                insight_type=insight_type,
-                title=title,
+                insight_type="theme",
+                title=theme,
                 description=(
-                    f"{insight_type.capitalize()} identified "
-                    f"from customer reviews: {title}"
+                    "Theme identified from "
+                    f"customer reviews: {theme}"
                 ),
             )
 
             db.add(insight)
             db.flush()
 
-            created_insights += 1
+            created += 1
 
-            insight_words = set(
-                title.lower().split()
-            )
+            # Link supporting reviews
+            for review in evidence:
 
-            for review_data in evidence:
-
-                # Current evidence format uses "id".
-                review_id = review_data.get(
-                    "document_id",
-                    review_data.get("id"),
+                review_id = review.get(
+                    "document_id"
                 )
 
                 if not review_id:
                     continue
 
-                review_text = (
-                    review_data.get(
-                        "review_text",
-                        ""
-                    ).lower()
+                db_review = (
+                    db.query(Review)
+                    .filter(
+                        Review.id == review_id
+                    )
+                    .first()
                 )
 
-                matching_words = [
-                    word
-                    for word in insight_words
-                    if len(word) > 3
-                ]
-
-                if not matching_words:
+                if not db_review:
                     continue
 
-                if any(
-                    word in review_text
-                    for word in matching_words
-                ):
+                link = EvidenceLink(
+                    insight_id=insight.id,
+                    review_id=review_id,
+                    reason=(
+                        "Review evidence supporting "
+                        f"theme: {theme}"
+                    ),
+                    search_score=review.get(
+                        "search_score"
+                    ),
+                )
 
-                    review = db.execute(
-                        select(Review).where(
-                            Review.id == review_id
-                        )
-                    ).scalar_one_or_none()
+                db.add(link)
 
-                    if review:
+                evidence_created += 1
 
-                        link = EvidenceLink(
-                            insight_id=insight.id,
-                            review_id=review.id,
-                            reason=(
-                                f"{evidence_reason_prefix}: "
-                                f"{title}"
-                            ),
-                            search_score=review_data.get(
-                                "search_score",
-                                review_data.get("score"),
-                            ),
-                        )
+        # -------------------------------------------------
+        # Create complaint insights
+        # -------------------------------------------------
 
-                        db.add(link)
-                        created_links += 1
+        for complaint in unique_complaints:
 
-        # Create themes
-        for theme in themes:
-            create_insight(
-                insight_type="theme",
-                title=theme,
-                evidence_reason_prefix="Review supports theme",
-            )
-
-        # Create complaints
-        for complaint in complaints:
-            create_insight(
+            insight = Insight(
                 insight_type="complaint",
                 title=complaint,
-                evidence_reason_prefix="Review supports complaint",
+                description=(
+                    "Complaint identified from "
+                    f"customer reviews: {complaint}"
+                ),
             )
+
+            db.add(insight)
+            db.flush()
+
+            created += 1
+
+            # Link supporting reviews
+            for review in evidence:
+
+                review_id = review.get(
+                    "document_id"
+                )
+
+                if not review_id:
+                    continue
+
+                db_review = (
+                    db.query(Review)
+                    .filter(
+                        Review.id == review_id
+                    )
+                    .first()
+                )
+
+                if not db_review:
+                    continue
+
+                link = EvidenceLink(
+                    insight_id=insight.id,
+                    review_id=review_id,
+                    reason=(
+                        "Review evidence supporting "
+                        f"complaint: {complaint}"
+                    ),
+                    search_score=review.get(
+                        "search_score"
+                    ),
+                )
+
+                db.add(link)
+
+                evidence_created += 1
+
+        # -------------------------------------------------
+        # Save
+        # -------------------------------------------------
 
         db.commit()
 
         return {
-            "insights_created": created_insights,
-            "evidence_links_created": created_links,
+            "status": "success",
+            "created": created,
+            "skipped": 0,
+            "evidence_links": evidence_created,
+            "themes": unique_themes,
+            "complaints": unique_complaints,
         }
 
     except Exception:
+
         db.rollback()
         raise
 
     finally:
+
         db.close()
 
 
 if __name__ == "__main__":
 
-    import re
+    result = sync_insights()
 
-    from backend.analysis.insights import generate_insights
-
-    print("\n" + "=" * 60)
-    print("REVIEWLENS AI - INSIGHT TO POSTGRESQL SYNC")
-    print("=" * 60)
-
-    result = generate_insights(
-        query=(
-            "What are the main themes and complaints "
-            "in these customer reviews?"
-        ),
-        top_k=4,
+    print("\nINSIGHT SYNC COMPLETE")
+    print(
+        "Created        :",
+        result.get("created")
     )
-
-    answer = result.get("answer", "")
-
-    evidence_result = {
-        "themes": [],
-        "complaints": [],
-        "evidence": result.get("evidence", []),
-    }
-
-    themes_match = re.search(
-        r"THEMES:\s*(.*?)(?=COMPLAINTS:)",
-        answer,
-        re.DOTALL | re.IGNORECASE,
+    print(
+        "Skipped        :",
+        result.get("skipped")
     )
-
-    complaints_match = re.search(
-        r"COMPLAINTS:\s*(.*?)(?=SUMMARY:)",
-        answer,
-        re.DOTALL | re.IGNORECASE,
+    print(
+        "Evidence links :",
+        result.get("evidence_links")
     )
-
-    if themes_match:
-        evidence_result["themes"] = [
-            line.strip()[1:].strip()
-            for line in themes_match.group(1).splitlines()
-            if line.strip().startswith("-")
-        ]
-
-    if complaints_match:
-        evidence_result["complaints"] = [
-            line.strip()[1:].strip()
-            for line in complaints_match.group(1).splitlines()
-            if line.strip().startswith("-")
-        ]
 
     print("\nThemes:")
-    for theme in evidence_result["themes"]:
+
+    for theme in result.get(
+        "themes",
+        []
+    ):
         print(" -", theme)
 
     print("\nComplaints:")
-    for complaint in evidence_result["complaints"]:
+
+    for complaint in result.get(
+        "complaints",
+        []
+    ):
         print(" -", complaint)
-
-    sync_result = save_insights(
-        evidence_result
-    )
-
-    print("\nInsights created:")
-    print(sync_result["insights_created"])
-
-    print("Evidence links created:")
-    print(sync_result["evidence_links_created"])
-
-    print("\n" + "=" * 60)
-    print("INSIGHT SYNC COMPLETE")
-    print("=" * 60)
