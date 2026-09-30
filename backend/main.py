@@ -368,6 +368,51 @@ def get_reviews():
 
 
 # =========================================================
+# GET DASHBOARD REVIEWS
+# =========================================================
+
+@app.get("/dashboard/reviews")
+def get_dashboard_reviews():
+
+    db = SessionLocal()
+
+    try:
+
+        reviews = db.execute(
+            select(
+                Review.id,
+                Review.review_text,
+                Review.redacted_text,
+                Review.sentiment,
+                Review.created_at,
+            ).order_by(
+                Review.created_at.desc()
+            )
+        ).all()
+
+        return {
+            "count": len(reviews),
+
+            "reviews": [
+                {
+                    "id": review.id,
+                    "review_text": review.review_text,
+                    "redacted_text": review.redacted_text,
+                    "sentiment": review.sentiment,
+                    "created_at": (
+                        review.created_at.isoformat()
+                    ),
+                }
+                for review in reviews
+            ],
+        }
+
+    finally:
+
+        db.close()
+
+
+# =========================================================
 # GET INSIGHTS
 # =========================================================
 

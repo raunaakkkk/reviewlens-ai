@@ -88,17 +88,6 @@ type Validation = {
   created_at: string;
 };
 
-type Drift = {
-  id: number;
-  current_period: string;
-  baseline_period: string;
-  baseline_negative_rate: number;
-  current_negative_rate: number;
-  negative_rate_change: number;
-  drift_detected: boolean;
-  created_at: string;
-};
-
 type AssistantSource = {
   id: string;
   review_text: string;
@@ -158,9 +147,6 @@ export default function Home() {
   const [validation, setValidation] =
     useState<Validation | null>(null);
 
-  const [drift, setDrift] =
-    useState<Drift | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -191,13 +177,11 @@ export default function Home() {
         insightsResponse,
         evidenceResponse,
         validationResponse,
-        driftResponse,
       ] = await Promise.all([
-        fetch(`${API_URL}/reviews`),
+        fetch(`${API_URL}/dashboard/reviews`),
         fetch(`${API_URL}/insights`),
         fetch(`${API_URL}/evidence`),
         fetch(`${API_URL}/validation`),
-        fetch(`${API_URL}/drift`),
       ]);
 
       if (!reviewsResponse.ok) {
@@ -224,12 +208,6 @@ export default function Home() {
         );
       }
 
-      if (!driftResponse.ok) {
-        throw new Error(
-          "Unable to load drift monitoring."
-        );
-      }
-
       const reviewsData =
         await reviewsResponse.json();
 
@@ -241,9 +219,6 @@ export default function Home() {
 
       const validationData =
         await validationResponse.json();
-
-      const driftData =
-        await driftResponse.json();
 
       setReviews(
         Array.isArray(reviewsData?.reviews)
@@ -265,10 +240,6 @@ export default function Home() {
 
       setValidation(
         validationData?.validation ?? null
-      );
-
-      setDrift(
-        driftData?.drift ?? null
       );
 
     } catch (error) {
@@ -315,10 +286,17 @@ export default function Home() {
         "negative"
     ).length;
 
+    const mixed = reviews.filter(
+      (review) =>
+        review.sentiment?.toLowerCase() ===
+        "mixed"
+    ).length;
+
     return {
       positive,
       neutral,
       negative,
+      mixed,
     };
   }, [reviews]);
 
@@ -335,6 +313,10 @@ export default function Home() {
     {
       name: "Negative",
       value: sentimentCounts.negative,
+    },
+    {
+      name: "Mixed",
+      value: sentimentCounts.mixed,
     },
   ];
 
@@ -353,6 +335,16 @@ export default function Home() {
     reviews.length > 0
       ? Math.round(
           (sentimentCounts.negative /
+            reviews.length) *
+            100
+        )
+      : 0;
+
+
+  const mixedPercentage =
+    reviews.length > 0
+      ? Math.round(
+          (sentimentCounts.mixed /
             reviews.length) *
             100
         )
@@ -512,7 +504,28 @@ export default function Home() {
         `${file.name} uploaded successfully.`
       );
 
-      await loadDashboard();
+      for (let attempt = 0; attempt < 30; attempt++) {
+  const statusResponse = await fetch(
+    `${API_URL}/analysis/status`
+  );
+
+  if (statusResponse.ok) {
+    const statusData = await statusResponse.json();
+
+    if (
+      statusData.status === "completed" ||
+      statusData.status === "failed"
+    ) {
+      break;
+    }
+  }
+
+  await new Promise((resolve) =>
+    setTimeout(resolve, 2000)
+  );
+}
+
+await loadDashboard();
 
     } catch (error) {
       console.error(
@@ -630,15 +643,6 @@ export default function Home() {
               >
                 <CheckCircle2 className="h-4 w-4" />
                 Sentiment Validation
-              </a>
-
-
-              <a
-                href="#drift"
-                className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                <Activity className="h-4 w-4" />
-                Drift Monitoring
               </a>
 
 
@@ -800,7 +804,7 @@ export default function Home() {
 
             <section
               id="overview"
-              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
             >
 
               <StatCard
@@ -846,6 +850,18 @@ export default function Home() {
                   <ThumbsDown className="h-5 w-5" />
                 }
                 subtitle={`${negativePercentage}% negative sentiment`}
+              />
+
+
+              <StatCard
+                title="Mixed"
+                value={
+                  sentimentCounts.mixed
+                }
+                icon={
+                  <Activity className="h-5 w-5" />
+                }
+                subtitle={`${mixedPercentage}% mixed sentiment`}
               />
 
             </section>
@@ -898,6 +914,7 @@ export default function Home() {
                         <Cell fill="#10b981" />
                         <Cell fill="#94a3b8" />
                         <Cell fill="#ef4444" />
+                        <Cell fill="#f59e0b" />
 
                       </Pie>
 
@@ -934,6 +951,14 @@ export default function Home() {
                       sentimentCounts.negative
                     }
                     dotClass="bg-red-500"
+                  />
+
+                  <LegendRow
+                    label="Mixed"
+                    value={
+                      sentimentCounts.mixed
+                    }
+                    dotClass="bg-amber-500"
                   />
 
                 </div>
@@ -1176,131 +1201,6 @@ export default function Home() {
 
               )}
 
-            </section>
-
-
-            {/* ==================================================
-                DRIFT MONITORING
-            ================================================== */}
-
-            <section
-              id="drift"
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-            >
-              <div className="mb-5 flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-slate-700" />
-                    <h2 className="font-semibold">
-                      Drift Monitoring
-                    </h2>
-                  </div>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Monitors changes in the negative sentiment rate
-                    between baseline and current review periods.
-                  </p>
-                </div>
-
-                {drift && (
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      drift.drift_detected
-                        ? "bg-red-50 text-red-700"
-                        : "bg-emerald-50 text-emerald-700"
-                    }`}
-                  >
-                    {drift.drift_detected
-                      ? "Drift Detected"
-                      : "No Drift Detected"}
-                  </span>
-                )}
-              </div>
-
-              {drift ? (
-                <>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <MetricCard
-                      title="Baseline Negative Rate"
-                      value={`${(
-                        drift.baseline_negative_rate * 100
-                      ).toFixed(1)}%`}
-                    />
-
-                    <MetricCard
-                      title="Current Negative Rate"
-                      value={`${(
-                        drift.current_negative_rate * 100
-                      ).toFixed(1)}%`}
-                    />
-
-                    <MetricCard
-                      title="Rate Change"
-                      value={`${(
-                        drift.negative_rate_change * 100
-                      ).toFixed(1)}%`}
-                    />
-                  </div>
-
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Baseline Period
-                      </p>
-
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">
-                        {drift.baseline_period}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Current Period
-                      </p>
-
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">
-                        {drift.current_period}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          Drift Threshold
-                        </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Drift is flagged when the negative sentiment
-                          rate changes by at least 20%.
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                        20%
-                      </span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="flex items-center gap-3">
-                    <AlertCircle className="h-5 w-5 text-slate-400" />
-
-                    <div>
-                      <p className="text-sm font-medium text-slate-700">
-                        No drift monitoring results available.
-                      </p>
-
-                      <p className="mt-1 text-xs text-slate-500">
-                        Run the drift monitoring pipeline and refresh
-                        the dashboard.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </section>
 
 
@@ -2004,4 +1904,3 @@ function MetricCard({
     </div>
   );
 }
-
