@@ -18,7 +18,7 @@ if application_insights_connection_string:
 from fastapi import FastAPI
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, func
 import threading
 import tempfile
 import os
@@ -378,6 +378,34 @@ def get_dashboard_reviews():
 
     try:
 
+        total_reviews = db.execute(
+            select(func.count(Review.id))
+        ).scalar() or 0
+
+        positive_count = db.execute(
+            select(func.count(Review.id)).where(
+                func.lower(Review.sentiment) == "positive"
+            )
+        ).scalar() or 0
+
+        neutral_count = db.execute(
+            select(func.count(Review.id)).where(
+                func.lower(Review.sentiment) == "neutral"
+            )
+        ).scalar() or 0
+
+        negative_count = db.execute(
+            select(func.count(Review.id)).where(
+                func.lower(Review.sentiment) == "negative"
+            )
+        ).scalar() or 0
+
+        mixed_count = db.execute(
+            select(func.count(Review.id)).where(
+                func.lower(Review.sentiment) == "mixed"
+            )
+        ).scalar() or 0
+
         reviews = db.execute(
             select(
                 Review.id,
@@ -385,36 +413,36 @@ def get_dashboard_reviews():
                 Review.redacted_text,
                 Review.sentiment,
                 Review.created_at,
-            ).order_by(
+            )
+            .order_by(
                 Review.created_at.desc()
             )
+            .limit(100)
         ).all()
 
         return {
-            "count": len(reviews),
-
+            "count": total_reviews,
+            "sentiment_counts": {
+                "positive": positive_count,
+                "neutral": neutral_count,
+                "negative": negative_count,
+                "mixed": mixed_count,
+            },
             "reviews": [
                 {
                     "id": review.id,
                     "review_text": review.review_text,
                     "redacted_text": review.redacted_text,
                     "sentiment": review.sentiment,
-                    "created_at": (
-                        review.created_at.isoformat()
-                    ),
+                    "created_at": review.created_at.isoformat(),
                 }
                 for review in reviews
             ],
         }
 
     finally:
-
         db.close()
 
-
-# =========================================================
-# GET INSIGHTS
-# =========================================================
 
 @app.get("/insights")
 def get_insights():
