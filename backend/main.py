@@ -349,6 +349,7 @@ def get_reviews():
                     "id": review.id,
                     "review_hash": review.review_hash,
                     "review_text": review.review_text,
+                    "rating": review.rating,
                     "redacted_text": review.redacted_text,
                     "sentiment": review.sentiment,
                     "positive_score": review.positive_score,
@@ -410,6 +411,7 @@ def get_dashboard_reviews():
             select(
                 Review.id,
                 Review.review_text,
+                Review.rating,
                 Review.redacted_text,
                 Review.sentiment,
                 Review.created_at,
@@ -432,6 +434,7 @@ def get_dashboard_reviews():
                 {
                     "id": review.id,
                     "review_text": review.review_text,
+                    "rating": review.rating,
                     "redacted_text": review.redacted_text,
                     "sentiment": review.sentiment,
                     "created_at": review.created_at.isoformat(),

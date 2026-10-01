@@ -30,6 +30,11 @@ class Review(Base):
         nullable=False,
     )
 
+    rating: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
     redacted_text: Mapped[str] = mapped_column(
         Text,
         nullable=False,

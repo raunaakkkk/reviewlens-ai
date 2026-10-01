@@ -22,6 +22,29 @@ EMBEDDING_BATCH_SIZE = 32
 SEARCH_UPLOAD_BATCH_SIZE = 500
 
 
+def parse_rating(value) -> float | None:
+    """
+    Parse an optional CSV rating.
+
+    Returns None when the value is missing or empty.
+    Raises ValueError for non-numeric values.
+    """
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid rating value: {value}"
+        ) from exc
+
+
 # =========================================================
 # LOAD EXISTING REVIEW HASHES
 # =========================================================
@@ -208,6 +231,10 @@ def ingest_csv(csv_path: str) -> dict:
 
             try:
 
+                rating = parse_rating(
+                    row.get("rating")
+                )
+
                 cleaned_text = clean_review(
                     review_text
                 )
@@ -260,6 +287,7 @@ def ingest_csv(csv_path: str) -> dict:
                         "original_text": review_text,
                         "cleaned_text": cleaned_text,
                         "review_hash": current_hash,
+                        "rating": rating,
                     }
                 )
 
@@ -423,6 +451,8 @@ def ingest_csv(csv_path: str) -> dict:
                     "review_hash": item[
                         "review_hash"
                     ],
+
+                    "rating": item["rating"],
 
                     "embedding": embeddings[index],
                 }

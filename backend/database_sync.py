@@ -29,6 +29,7 @@ def get_search_reviews(search_client) -> list[dict]:
                 "neutral_score",
                 "negative_score",
                 "review_hash",
+                "rating",
             ],
             top=SEARCH_PAGE_SIZE,
             skip=skip,
@@ -59,6 +60,7 @@ def get_search_reviews(search_client) -> list[dict]:
                     "negative_score": result[
                         "negative_score"
                     ],
+                    "rating": result.get("rating"),
                 }
             )
 
@@ -151,6 +153,7 @@ def sync_search_to_database() -> dict:
                     id=result["id"],
                     review_hash=review_hash,
                     review_text=result["review_text"],
+                    rating=result.get("rating"),
                     redacted_text=result[
                         "redacted_text"
                     ],
